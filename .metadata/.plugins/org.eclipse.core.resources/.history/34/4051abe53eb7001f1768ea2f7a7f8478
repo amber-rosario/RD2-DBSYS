@@ -1,0 +1,241 @@
+package app;
+
+import java.sql.*;
+import java.util.Scanner;
+import java.util.regex.Pattern;
+
+public class main {
+
+    private static final String DB_URL = "jdbc:mysql://localhost:3306";
+    private static final String DB_NAME = "testdb";
+    private static final String DB_USER = "root";  // Use environment variable for production
+    private static final String DB_PASSWORD = "password";  // Use environment variable for production
+
+    public static void main(String[] args) {
+        // Establish connection
+        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD)) {
+            // Check if database exists, create it if not
+            createDatabaseIfNotExists(conn);
+            // Check if the table exists, create it if not
+            createTableIfNotExists(conn);
+
+            Scanner scanner = new Scanner(System.in);
+            boolean keepRunning = true;
+
+            // Main menu loop
+            while (keepRunning) {
+                displayMenu();
+                String choice = scanner.nextLine();
+
+                switch (choice) {
+                    case "1":
+                        createRecord(conn, scanner);
+                        break;
+                    case "2":
+                        readRecords(conn);
+                        break;
+                    case "3":
+                        updateRecord(conn, scanner);
+                        break;
+                    case "4":
+                        deleteRecord(conn, scanner);
+                        break;
+                    case "5":
+                        keepRunning = false;
+                        break;
+                    default:
+                        System.out.println("Invalid choice. Try again.");
+                        break;
+                }
+            }
+
+            scanner.close();
+
+        } catch (SQLException e) {
+            System.err.println("Connection error: " + e.getMessage());
+        }
+    }
+
+    // Display main menu
+    private static void displayMenu() {
+        System.out.println("\nChoose an operation: ");
+        System.out.println("1. Create a record");
+        System.out.println("2. Read records");
+        System.out.println("3. Update a record");
+        System.out.println("4. Delete a record");
+        System.out.println("5. Exit");
+        System.out.print("Enter your choice: ");
+    }
+
+    // 1. Create a new record with user input and validation
+    private static void createRecord(Connection conn, Scanner scanner) {
+        String name = getValidInput(scanner, "Enter name: ", CRUD::validateName);
+        String email = getValidInput(scanner, "Enter email: ", CRUD::validateEmail);
+        String phone = getValidInput(scanner, "Enter phone (digits only, at least 10): ", CRUD::validatePhone);
+        String address = getValidInput(scanner, "Enter address: ", CRUD::validateAddress);
+
+        String sql = "INSERT INTO users (name, email, phone, address, created_at) VALUES (?, ?, ?, ?, NOW())";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, name);
+            stmt.setString(2, email);
+            stmt.setString(3, phone);
+            stmt.setString(4, address);
+            stmt.executeUpdate();
+            System.out.println("Record created successfully!");
+        } catch (SQLException e) {
+            System.err.println("Error creating record: " + e.getMessage());
+        }
+    }
+
+    // 2. Read records from the database
+    private static void readRecords(Connection conn) {
+        String sql = "SELECT * FROM users";
+        try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                System.out.println("ID: " + rs.getInt("id"));
+                System.out.println("Name: " + rs.getString("name"));
+                System.out.println("Email: " + rs.getString("email"));
+                System.out.println("Phone: " + rs.getString("phone"));
+                System.out.println("Address: " + rs.getString("address"));
+                System.out.println("Created At: " + rs.getTimestamp("created_at"));
+                System.out.println("-----------------------------------");
+            }
+        } catch (SQLException e) {
+            System.err.println("Error reading records: " + e.getMessage());
+        }
+    }
+
+    // 3. Update an existing record
+    private static void updateRecord(Connection conn, Scanner scanner) {
+        int id = Integer.parseInt(getValidInput(scanner, "Enter the ID of the record to update: ", CRUD::validateId));
+
+        String name = getOptionalValidInput(scanner, "Enter new name (or press enter to skip): ", CRUD::validateName);
+        String email = getOptionalValidInput(scanner, "Enter new email (or press enter to skip): ", CRUD::validateEmail);
+        String phone = getOptionalValidInput(scanner, "Enter new phone (or press enter to skip): ", CRUD::validatePhone);
+        String address = getOptionalValidInput(scanner, "Enter new address (or press enter to skip): ", CRUD::validateAddress);
+
+        String sql = "UPDATE users SET name = ?, email = ?, phone = ?, address = ? WHERE id = ?";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, name.isEmpty() ? null : name);
+            stmt.setString(2, email.isEmpty() ? null : email);
+            stmt.setString(3, phone.isEmpty() ? null : phone);
+            stmt.setString(4, address.isEmpty() ? null : address);
+            stmt.setInt(5, id);
+            int rowsUpdated = stmt.executeUpdate();
+            if (rowsUpdated > 0) {
+                System.out.println("Record updated successfully!");
+            } else {
+                System.out.println("No record found with that ID.");
+            }
+        } catch (SQLException e) {
+            System.err.println("Error updating record: " + e.getMessage());
+        }
+    }
+
+    // 4. Delete a record
+    private static void deleteRecord(Connection conn, Scanner scanner) {
+        int id = Integer.parseInt(getValidInput(scanner, "Enter the ID of the record to delete: ", CRUD::validateId));
+        String sql = "DELETE FROM users WHERE id = ?";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, id);
+            int rowsDeleted = stmt.executeUpdate();
+            if (rowsDeleted > 0) {
+                System.out.println("Record deleted successfully!");
+            } else {
+                System.out.println("No record found with that ID.");
+            }
+        } catch (SQLException e) {
+            System.err.println("Error deleting record: " + e.getMessage());
+        }
+    }
+
+    // Create database if it does not exist
+    private static void createDatabaseIfNotExists(Connection conn) {
+        String sql = "CREATE DATABASE IF NOT EXISTS " + DB_NAME;
+        try (Statement stmt = conn.createStatement()) {
+            stmt.executeUpdate(sql);
+            System.out.println("Database is ready.");
+        } catch (SQLException e) {
+            System.err.println("Error creating database: " + e.getMessage());
+        }
+    }
+
+    // Create table if it does not exist
+    private static void createTableIfNotExists(Connection conn) {
+        String sql = "CREATE TABLE IF NOT EXISTS users ("
+                + "id INT AUTO_INCREMENT PRIMARY KEY, "
+                + "name VARCHAR(255) NOT NULL, "
+                + "email VARCHAR(255) NOT NULL, "
+                + "phone VARCHAR(15) NOT NULL, "
+                + "address VARCHAR(255) NOT NULL, "
+                + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+                + ")";
+        try (Statement stmt = conn.createStatement()) {
+            stmt.executeUpdate(sql);
+            System.out.println("Table is ready.");
+        } catch (SQLException e) {
+            System.err.println("Error creating table: " + e.getMessage());
+        }
+    }
+
+    // Validate methods
+    private static String getValidInput(Scanner scanner, String prompt, InputValidator validator) {
+        String input;
+        while (true) {
+            System.out.print(prompt);
+            input = scanner.nextLine();
+            if (validator.validate(input)) {
+                break;
+            } else {
+                System.out.println("Invalid input. Please try again.");
+            }
+        }
+        return input;
+    }
+
+    private static String getOptionalValidInput(Scanner scanner, String prompt, InputValidator validator) {
+        String input;
+        System.out.print(prompt);
+        input = scanner.nextLine();
+        if (input.isEmpty()) return "";
+        while (!validator.validate(input)) {
+            System.out.println("Invalid input. Please try again.");
+            System.out.print(prompt);
+            input = scanner.nextLine();
+        }
+        return input;
+    }
+
+    // Validation for each field
+    private static boolean validateName(String name) {
+        return !name.isEmpty();
+    }
+
+    private static boolean validateEmail(String email) {
+        String emailRegex = "^[\\w-\\.]+@[\\w-]+\\.[a-z]{2,4}$";
+        return Pattern.matches(emailRegex, email);
+    }
+
+    private static boolean validatePhone(String phone) {
+        return phone.matches("\\d{10,15}");
+    }
+
+    private static boolean validateAddress(String address) {
+        return !address.isEmpty();
+    }
+
+    private static boolean validateId(String id) {
+        try {
+            Integer.parseInt(id);
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    // InputValidator interface
+    interface InputValidator {
+        boolean validate(String input);
+    }
+}
+
